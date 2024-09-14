@@ -6,12 +6,36 @@
     <title>Ambulance Routing System with Real-Time Traffic</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.css" />
+    <link
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
+    rel="stylesheet"
+    integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN"
+    crossorigin="anonymous"
+    />
+
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             margin: 0;
             padding: 0;
             background-color: #f0f0f0;
+        }
+
+        .navbar {
+            background-color: #000;
+            padding: 10px 0;
+        }
+
+        .navbar-brand {
+            color: #fff;
+        }
+
+        .navbar-nav .nav-link {
+            color: #fff;
+        }
+
+        .navbar-nav .nav-link.active {
+            color: #ddd;
         }
 
         .container {
@@ -38,19 +62,20 @@
         }
 
         .input-group {
+            display: flex;
+            flex-wrap: wrap;
             margin-bottom: 20px;
-            position: relative;
         }
 
         label {
-            display: block;
+            flex-basis: 100%;
             margin-bottom: 8px;
             font-weight: bold;
             color: #555;
         }
 
         input[type="text"] {
-            width: 100%;
+            flex: 1;
             padding: 12px;
             border: 1px solid #ccc;
             border-radius: 4px;
@@ -58,19 +83,19 @@
             font-size: 1em;
         }
 
-        button {
-            width: 100%;
+        button, #get-current-location-btn {
             padding: 12px;
             background-color: #000;
             border: none;
             color: #fff;
-            font-size: 18px;
+            font-size: 16px;
             cursor: pointer;
             border-radius: 4px;
-            margin-top: 15px;
+            margin-left: 10px; /* Adjust for button alignment */
+            min-width: 160px;
         }
 
-        button:hover {
+        button:hover, #get-current-location-btn:hover {
             background-color: #333;
         }
 
@@ -90,12 +115,47 @@
     </style>
 </head>
 <body>
+    <nav class="navbar navbar-expand-lg navbar-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#">
+                <img src="pngwing.com.png" alt="Logo" width="40" height="30" class="d-inline-block align-text-top" />
+                <b> Ambulance Router </b>
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarSupportedContent" aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarSupportedContent">
+                <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
+                    <li class="nav-item">
+                        <a class="nav-link active" aria-current="page" href="home.html">Home</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="contactus.html">About us</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="#">Contact</a>
+                    </li>
+                    
+                </ul>
+                <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
+                    <li class="nav-item">
+                        <a class="btn btn-outline-light" data-bs-toggle="modal" data-bs-target="#SignupModal" href="#">Sign Up</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="btn btn-outline-light" data-bs-toggle="modal" data-bs-target="#LoginModal" href="#">Login</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
     <div class="container">
         <h1>Ambulance Routing System</h1>
         <form id="booking-form">
             <div class="input-group">
                 <label for="search-start">Start Location:</label>
                 <input type="text" id="search-start" placeholder="Enter your location" autocomplete="off">
+                <button id="get-current-location-btn" type="button">Get Current Location</button>
                 <div id="suggestions-start" class="autocomplete-suggestions"></div>
             </div>
             <div class="input-group">
@@ -155,8 +215,7 @@
                             });
                             suggestionsContainer.appendChild(div);
                         });
-                    })
-                    .catch(error => console.error('Error fetching autocomplete suggestions:', error));
+                    });
             });
         }
 
@@ -164,80 +223,57 @@
         handleAutocomplete(
             document.getElementById('search-start'),
             document.getElementById('suggestions-start'),
-            (item) => {
-                const latLng = [item.lat, item.lon];
-                if (startMarker) map.removeLayer(startMarker);
-                startMarker = L.marker(latLng, { color: 'green' }).addTo(map);
-                map.setView(latLng, 13);
-                updateRoute();
-                findNearbyHospitals(latLng);
+            function(item) {
+                const lat = item.lat;
+                const lon = item.lon;
+                if (startMarker) {
+                    map.removeLayer(startMarker);
+                }
+                startMarker = L.marker([lat, lon]).addTo(map);
+                control.setWaypoints([L.latLng(lat, lon), control.getWaypoints()[1] ? control.getWaypoints()[1].latLng : null]);
+                map.setView([lat, lon], 12);
             }
         );
 
-        // Handle hospital autocomplete
+        // Handle hospital location autocomplete
         handleAutocomplete(
             document.getElementById('search-hospital'),
             document.getElementById('suggestions-hospital'),
-            (item) => {
-                const latLng = [item.lat, item.lon];
-                if (hospitalMarker) map.removeLayer(hospitalMarker);
-                hospitalMarker = L.marker(latLng, { color: 'red' }).addTo(map);
-                map.setView(latLng, 13);
-                updateRoute();
+            function(item) {
+                const lat = item.lat;
+                const lon = item.lon;
+                if (hospitalMarker) {
+                    map.removeLayer(hospitalMarker);
+                }
+                hospitalMarker = L.marker([lat, lon]).addTo(map);
+                control.setWaypoints([control.getWaypoints()[0] ? control.getWaypoints()[0].latLng : null, L.latLng(lat, lon)]);
+                map.setView([lat, lon], 12);
             },
             'hospital'
         );
 
-        // Function to update the route
-        function updateRoute() {
-            if (startMarker && hospitalMarker) {
-                control.setWaypoints([
-                    startMarker.getLatLng(),
-                    hospitalMarker.getLatLng()
-                ]);
+        // Get Current Location button functionality
+        document.getElementById('get-current-location-btn').addEventListener('click', function() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(function(position) {
+                    const lat = position.coords.latitude;
+                    const lon = position.coords.longitude;
 
-                // Optional: Center map to fit route
-                map.fitBounds(control.getPlan().getBounds());
-            }
-        }
-
-        // Function to fetch and display nearby hospitals
-        function findNearbyHospitals(latLng) {
-            const [lat, lon] = latLng;
-            fetch(`https://overpass-api.de/api/interpreter?data=[out:json];node[amenity=hospital](around:100000,${lat},${lon});out;`)
-                .then(response => response.json())
-                .then(data => {
-                    let hospitals = data.elements
-                        .slice(0, 10) // Limit to top 10 hospitals
-                        .map(item => ({
-                            name: item.tags.name || 'Unnamed Hospital',
-                            lat: item.lat,
-                            lon: item.lon
-                        }));
-                    
-                    let html = '<h3>Nearby Hospitals (Top 10)</h3>';
-                    hospitals.forEach(hospital => {
-                        html += `<p>${hospital.name} - Location: [${hospital.lat}, ${hospital.lon}]</p>`;
-                        L.marker([hospital.lat, hospital.lon], { color: 'blue' }).addTo(map);
-                    });
-
-                    if (hospitals.length === 0) {
-                        html += '<p>No nearby hospitals found.</p>';
+                    if (startMarker) {
+                        map.removeLayer(startMarker);
                     }
+                    startMarker = L.marker([lat, lon]).addTo(map);
+                    control.setWaypoints([L.latLng(lat, lon), control.getWaypoints()[1] ? control.getWaypoints()[1].latLng : null]);
+                    map.setView([lat, lon], 12);
 
-                    document.getElementById('nearby-hospitals').innerHTML = html;
-                })
-                .catch(error => {
-                    console.error('Error fetching nearby hospitals:', error);
-                    document.getElementById('nearby-hospitals').innerHTML = '<p>Error fetching nearby hospitals.</p>';
+                    document.getElementById('search-start').value = `Lat: ${lat}, Lon: ${lon}`;
+                }, function() {
+                    alert('Unable to retrieve your location.');
                 });
-        }
-
-        // Continuously update the route every 5 minutes
-        setInterval(() => {
-            updateRoute();
-        }, 300000); // 300000 ms = 5 minutes
+            } else {
+                alert('Geolocation is not supported by this browser.');
+            }
+        });
     </script>
 </body>
 </html>
-
