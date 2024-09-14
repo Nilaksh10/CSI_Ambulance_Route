@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ambulance Routing System with Real-Time Traffic</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.css" />
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f0f0f0;
+        }
+
+        .container {
+            width: 90%;
+            max-width: 800px;
+            margin: 30px auto;
+            background-color: #fff;
+            padding: 30px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            border-radius: 10px;
+        }
+
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 25px;
+        }
+
+        #map {
+            height: 400px;
+            width: 100%;
+            margin-top: 20px;
+            border-radius: 8px;
+        }
+
+        .input-group {
+            margin-bottom: 20px;
+            position: relative;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+            color: #555;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+            font-size: 1em;
+        }
+
+        button {
+            width: 100%;
+            padding: 12px;
+            background-color: #000;
+            border: none;
+            color: #fff;
+            font-size: 18px;
+            cursor: pointer;
+            border-radius: 4px;
+            margin-top: 15px;
+        }
+
+        button:hover {
+            background-color: #333;
+        }
+
+        #nearby-hospitals {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #fafafa;
+            border-radius: 6px;
+            border: 1px solid #ddd;
+            box-shadow: 0 1px 5px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Hide Leaflet watermark */
+        .leaflet-control-attribution {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Ambulance Routing System</h1>
+        <form id="booking-form">
+            <div class="input-group">
+                <label for="search-start">Start Location:</label>
+                <input type="text" id="search-start" placeholder="Enter your location" autocomplete="off">
+                <div id="suggestions-start" class="autocomplete-suggestions"></div>
+            </div>
+            <div class="input-group">
+                <label for="search-hospital">Hospital:</label>
+                <input type="text" id="search-hospital" placeholder="Enter hospital name" autocomplete="off">
+                <div id="suggestions-hospital" class="autocomplete-suggestions"></div>
+            </div>
+            <button type="submit">RESET</button>
+        </form>
+        <div id="nearby-hospitals"></div>
+        <div id="map"></div>
+    </div>
+
+    <!-- Leaflet and Routing Machine JavaScript -->
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.js"></script>
+    <script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
+    <script>
+        // Initialize map
+        const map = L.map('map').setView([20.5937, 78.9629], 5); // Center on India
+
+        // Add OpenStreetMap tiles
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        let control = L.Routing.control({
+            waypoints: [],
+            routeWhileDragging: true,
+            geocoder: L.Control.Geocoder.nominatim()
+        }).addTo(map);
+
+        let startMarker = null;
+        let hospitalMarker = null;
+
+        // Handle autocomplete suggestions
+        function handleAutocomplete(input, suggestionsContainer, setCoordinates, keyword = '') {
+            input.addEventListener('input', function() {
+                const query = input.value;
+                if (query.length < 3) {
+                    suggestionsContainer.innerHTML = '';
+                    return;
+                }
+
+                fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${query} ${keyword}&addressdetails=1&limit=10`)
+                    .then(response => response.json())
+                    .then(data => {
+                        suggestionsContainer.innerHTML = '';
+                        data.forEach(item => {
+                            const div = document.createElement('div');
+                            div.textContent = item.display_name;
+                            div.className = 'autocomplete-suggestion';
+                            div.addEventListener('click', function() {
+                                input.value = item.display_name;
+                                suggestionsContainer.innerHTML = '';
+                                setCoordinates(item);
+                            });
+                            suggestionsContainer.appendChild(div);
+                        });
+                    })
+                    .catch(error => console.error('Error fetching autocomplete suggestions:', error));
+            });
+        }
+
+        // Handle start location autocomplete
+        handleAutocomplete(
+            document.getElementById('search-start'),
+            document.getElementById('suggestions-start'),
+            (item) => {
+                const latLng = [item.lat, item.lon];
+                if (startMarker) map.removeLayer(startMarker);
+                startMarker = L.marker(latLng, { color: 'green' }).addTo(map);
+                map.setView(latLng, 13);
+                updateRoute();
+                findNearbyHospitals(latLng);
+            }
+        );
+
+        // Handle hospital autocomplete
+        handleAutocomplete(
+            document.getElementById('search-hospital'),
+            document.getElementById('suggestions-hospital'),
+            (item) => {
+                const latLng = [item.lat, item.lon];
+                if (hospitalMarker) map.removeLayer(hospitalMarker);
+                hospitalMarker = L.marker(latLng, { color: 'red' }).addTo(map);
+                map.setView(latLng, 13);
+                updateRoute();
+            },
+            'hospital'
+        );
+
+        // Function to update the route
+        function updateRoute() {
+            if (startMarker && hospitalMarker) {
+                control.setWaypoints([
+                    startMarker.getLatLng(),
+                    hospitalMarker.getLatLng()
+                ]);
+
+                // Optional: Center map to fit route
+                map.fitBounds(control.getPlan().getBounds());
+            }
+        }
+
+        // Function to fetch and display nearby hospitals
+        function findNearbyHospitals(latLng) {
+            const [lat, lon] = latLng;
+            fetch(`https://overpass-api.de/api/interpreter?data=[out:json];node[amenity=hospital](around:100000,${lat},${lon});out;`)
+                .then(response => response.json())
+                .then(data => {
+                    let hospitals = data.elements
+                        .slice(0, 10) // Limit to top 10 hospitals
+                        .map(item => ({
+                            name: item.tags.name || 'Unnamed Hospital',
+                            lat: item.lat,
+                            lon: item.lon
+                        }));
+                    
+                    let html = '<h3>Nearby Hospitals (Top 10)</h3>';
+                    hospitals.forEach(hospital => {
+                        html += `<p>${hospital.name} - Location: [${hospital.lat}, ${hospital.lon}]</p>`;
+                        L.marker([hospital.lat, hospital.lon], { color: 'blue' }).addTo(map);
+                    });
+
+                    if (hospitals.length === 0) {
+                        html += '<p>No nearby hospitals found.</p>';
+                    }
+
+                    document.getElementById('nearby-hospitals').innerHTML = html;
+                })
+                .catch(error => {
+                    console.error('Error fetching nearby hospitals:', error);
+                    document.getElementById('nearby-hospitals').innerHTML = '<p>Error fetching nearby hospitals.</p>';
+                });
+        }
+
+        // Continuously update the route every 5 minutes
+        setInterval(() => {
+            updateRoute();
+        }, 300000); // 300000 ms = 5 minutes
+    </script>
+</body>
+</html>
+
